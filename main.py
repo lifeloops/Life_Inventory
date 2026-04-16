@@ -57,8 +57,6 @@ class DailyLog(Base):
     calories = Column(Float, default=None)
     protein_g = Column(Float, default=None)
     steps = Column(Integer, default=None)
-    distance_km = Column(Float, default=None)
-    exercise_minutes = Column(Integer, default=None)
     sleep_hours = Column(Float, default=None)
     sleep_quality = Column(Integer, default=None)  # 1-5 scale
     screen_time_hours = Column(Float, default=None)
@@ -110,8 +108,6 @@ class DailyLogSchema(BaseModel):
     calories: Optional[float] = None
     protein_g: Optional[float] = None
     steps: Optional[int] = None
-    distance_km: Optional[float] = None
-    exercise_minutes: Optional[int] = None
     sleep_hours: Optional[float] = None
     sleep_quality: Optional[int] = None
     screen_time_hours: Optional[float] = None
@@ -301,8 +297,6 @@ async def get_daily_log(date: str):
             "calories": log.calories,
             "protein_g": log.protein_g,
             "steps": log.steps,
-            "distance_km": log.distance_km,
-            "exercise_minutes": log.exercise_minutes,
             "sleep_hours": log.sleep_hours,
             "sleep_quality": log.sleep_quality,
             "screen_time_hours": log.screen_time_hours
@@ -376,8 +370,6 @@ async def get_week_logs(week_start: str):
                     "calories": log.calories,
                     "protein_g": log.protein_g,
                     "steps": log.steps,
-                    "distance_km": log.distance_km,
-                    "exercise_minutes": log.exercise_minutes,
                     "sleep_hours": log.sleep_hours,
                     "sleep_quality": log.sleep_quality,
                     "screen_time_hours": log.screen_time_hours
