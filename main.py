@@ -2,8 +2,6 @@ import os
 import json
 from datetime import datetime, timedelta
 from typing import Optional
-import gspread
-from google.oauth2.service_account import Credentials
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -27,61 +25,6 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 # MyFitnessPal config
 MFP_USERNAME = os.getenv("MFP_USERNAME")
 MFP_PASSWORD = os.getenv("MFP_PASSWORD")
-
-# Google Sheets config
-GOOGLE_SHEETS_CREDS = os.getenv("GOOGLE_SHEETS_CREDS")
-GOOGLE_SHEET_ID = "1LwaUT-kc0jp9IIHrin8hPRVaz0k1hGLapnGJQzmYWP0"
-
-def get_sheets_client():
-    """Get authenticated Google Sheets client"""
-    if not GOOGLE_SHEETS_CREDS:
-        return None
-    try:
-        creds_dict = json.loads(GOOGLE_SHEETS_CREDS)
-        creds = Credentials.from_service_account_info(
-            creds_dict,
-            scopes=["https://www.googleapis.com/auth/spreadsheets"]
-        )
-        return gspread.authorize(creds)
-    except Exception as e:
-        print(f"Google Sheets auth error: {e}")
-        return None
-
-async def append_to_sheets(log_data: dict):
-    """Append a row to Google Sheets"""
-    try:
-        client = get_sheets_client()
-        if not client:
-            return
-        
-        sheet = client.open_by_key(GOOGLE_SHEET_ID)
-        ws = sheet.worksheet(0)
-        
-        # Map data to sheet columns
-        row = [
-            log_data.get("date", ""),
-            log_data.get("water_morning", ""),
-            log_data.get("bed", ""),
-            log_data.get("blinds", ""),
-            log_data.get("face_routine_morning", ""),
-            log_data.get("meds_taken", ""),
-            log_data.get("t_break", ""),
-            log_data.get("journaling", ""),
-            log_data.get("eat_at_home", ""),
-            log_data.get("face_routine_night", ""),
-            log_data.get("water_night", ""),
-            log_data.get("reading", ""),
-            log_data.get("calories", ""),
-            log_data.get("protein_g", ""),
-            log_data.get("steps", ""),
-            log_data.get("sleep_hours", ""),
-            log_data.get("sleep_quality", ""),
-            log_data.get("screen_time_hours", ""),
-        ]
-        
-        ws.append_row(row)
-    except Exception as e:
-        print(f"Error appending to sheets: {e}")
 
 # =====================
 # DATABASE MODELS
@@ -377,12 +320,6 @@ async def update_daily_log(date: str, log_data: DailyLogSchema):
                 setattr(log, field, value)
         
         db.commit()
-        
-        # Append to Google Sheets
-        data_to_sheet = log_data.dict()
-        data_to_sheet["date"] = date
-        await append_to_sheets(data_to_sheet)
-        
         return {"status": "ok", "date": date}
     except Exception as e:
         db.rollback()
