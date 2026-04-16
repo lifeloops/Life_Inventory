@@ -301,6 +301,8 @@ async def get_daily_log(date: str):
             "calories": log.calories,
             "protein_g": log.protein_g,
             "steps": log.steps,
+            "distance_km": log.distance_km,
+            "exercise_minutes": log.exercise_minutes,
             "sleep_hours": log.sleep_hours,
             "sleep_quality": log.sleep_quality,
             "screen_time_hours": log.screen_time_hours
