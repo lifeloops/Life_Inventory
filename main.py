@@ -326,7 +326,7 @@ async def health():
 
 
 # =====================
-# MANUAL SYNC ENDPOINT
+# MANUAL SYNC ENDPOINTS
 # =====================
 
 @app.post("/sync/sheets")
@@ -334,6 +334,16 @@ async def manual_sheets_sync():
     """Manually trigger Google Sheets sync (useful for testing)"""
     sync_to_google_sheets()
     return {"status": "ok", "message": "Google Sheets sync triggered"}
+
+
+@app.get("/sync/sheets/test")
+async def test_sheets_sync():
+    """GET endpoint to test Google Sheets sync from browser"""
+    try:
+        sync_to_google_sheets()
+        return {"status": "ok", "message": "Google Sheets sync completed successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 # =====================
@@ -579,4 +589,3 @@ async def apple_health_webhook(request: Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-    
