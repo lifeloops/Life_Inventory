@@ -153,24 +153,30 @@ def sync_to_google_sheets():
     
     client = get_sheets_client()
     if not client:
+        print("❌ Failed to get sheets client")
         return
     
     db = SessionLocal()
     try:
         # Get all logs, sorted by date (oldest first)
         all_logs = db.query(DailyLog).order_by(DailyLog.date).all()
+        print(f"📊 Found {len(all_logs)} logs in database")
         
         if not all_logs:
             print("📋 No logs to sync")
             return
         
         # Open the spreadsheet
+        print(f"📂 Opening spreadsheet with ID: {GOOGLE_SHEETS_ID}")
         sheet = client.open_by_key(GOOGLE_SHEETS_ID)
+        print(f"✅ Spreadsheet opened: '{sheet.title}'")
         
         # Get the first worksheet
         worksheet = sheet.get_worksheet(0)
+        print(f"📄 Got worksheet: '{worksheet.title}'")
         
         # Clear all existing data
+        print("🗑️  Clearing worksheet...")
         worksheet.clear()
         
         # Write header row
@@ -182,35 +188,45 @@ def sync_to_google_sheets():
             "Sleep Quality", "Screen Time (hrs)"
         ]
         worksheet.append_row(headers)
+        print(f"📋 Added header row")
         
         # Write data rows (oldest to newest)
-        for log in all_logs:
-            row = [
-                log.date,
-                "✓" if log.water_morning else "✗",
-                "✓" if log.bed else "✗",
-                "✓" if log.blinds else "✗",
-                "✓" if log.face_routine_morning else "✗",
-                "✓" if log.meds_taken else "✗",
-                "✓" if log.t_break else ("✗" if log.t_break == False else "—"),
-                "✓" if log.journaling else "✗",
-                "✓" if log.eat_at_home else "✗",
-                "✓" if log.face_routine_night else "✗",
-                "✓" if log.water_night else "✗",
-                "✓" if log.reading else "✗",
-                log.calories if log.calories else "—",
-                log.protein_g if log.protein_g else "—",
-                log.steps if log.steps else "—",
-                log.sleep_hours if log.sleep_hours else "—",
-                log.sleep_quality if log.sleep_quality else "—",
-                log.screen_time_hours if log.screen_time_hours else "—",
-            ]
-            worksheet.append_row(row)
+        print(f"📝 Writing {len(all_logs)} data rows...")
+        for i, log in enumerate(all_logs):
+            try:
+                row = [
+                    log.date,
+                    "✓" if log.water_morning else "✗",
+                    "✓" if log.bed else "✗",
+                    "✓" if log.blinds else "✗",
+                    "✓" if log.face_routine_morning else "✗",
+                    "✓" if log.meds_taken else "✗",
+                    "✓" if log.t_break else ("✗" if log.t_break == False else "—"),
+                    "✓" if log.journaling else "✗",
+                    "✓" if log.eat_at_home else "✗",
+                    "✓" if log.face_routine_night else "✗",
+                    "✓" if log.water_night else "✗",
+                    "✓" if log.reading else "✗",
+                    log.calories if log.calories else "—",
+                    log.protein_g if log.protein_g else "—",
+                    log.steps if log.steps else "—",
+                    log.sleep_hours if log.sleep_hours else "—",
+                    log.sleep_quality if log.sleep_quality else "—",
+                    log.screen_time_hours if log.screen_time_hours else "—",
+                ]
+                worksheet.append_row(row)
+                if (i + 1) % 10 == 0:
+                    print(f"  ✓ Appended {i + 1}/{len(all_logs)} rows")
+            except Exception as row_error:
+                print(f"❌ Error appending row {i} (date: {log.date}): {row_error}")
+                raise
         
-        print(f"✅ Google Sheets sync complete: {len(all_logs)} logs synced")
+        print(f"✅ Google Sheets sync complete: {len(all_logs)} logs synced successfully")
     
     except Exception as e:
         print(f"❌ Error syncing to Google Sheets: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         db.close()
 
