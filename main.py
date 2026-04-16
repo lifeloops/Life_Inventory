@@ -144,8 +144,8 @@ def get_sheets_client():
 def sync_to_google_sheets():
     """
     Nightly sync: Get all logs from database and write to Google Sheets
-    Creates monthly tabs (Jan 2026, Feb 2026, etc.)
-    Sorts oldest to newest within each month
+    Writes all data to the first worksheet
+    Sorts oldest to newest
     """
     if not GOOGLE_SHEETS_ID:
         print("⚠️ GOOGLE_SHEETS_ID not set, skipping Sheets sync")
@@ -157,7 +157,7 @@ def sync_to_google_sheets():
     
     db = SessionLocal()
     try:
-        # Get all logs, sorted by date
+        # Get all logs, sorted by date (oldest first)
         all_logs = db.query(DailyLog).order_by(DailyLog.date).all()
         
         if not all_logs:
@@ -167,66 +167,47 @@ def sync_to_google_sheets():
         # Open the spreadsheet
         sheet = client.open_by_key(GOOGLE_SHEETS_ID)
         
-        # Group logs by month
-        logs_by_month = {}
+        # Get the first worksheet
+        worksheet = sheet.get_worksheet(0)
+        
+        # Clear all existing data
+        worksheet.clear()
+        
+        # Write header row
+        headers = [
+            "Date", "Water (AM)", "Made Bed", "Opened Blinds", 
+            "Face Routine (AM)", "Meds", "T-Break", "Journaling",
+            "Ate at Home", "Face Routine (PM)", "Water (PM)", "Reading",
+            "Calories", "Protein (g)", "Steps", "Sleep (hrs)", 
+            "Sleep Quality", "Screen Time (hrs)"
+        ]
+        worksheet.append_row(headers)
+        
+        # Write data rows (oldest to newest)
         for log in all_logs:
-            # Parse date as YYYY-MM-DD and extract month
-            date_obj = datetime.strptime(log.date, "%Y-%m-%d")
-            month_key = date_obj.strftime("%B %Y")  # e.g., "April 2026"
-            
-            if month_key not in logs_by_month:
-                logs_by_month[month_key] = []
-            logs_by_month[month_key].append(log)
-        
-        # For each month, create or update a tab
-        for month, logs in sorted(logs_by_month.items()):
-            try:
-                # Try to get existing worksheet
-                worksheet = sheet.worksheet(month)
-            except gspread.exceptions.WorksheetNotFound:
-                # Create new worksheet if it doesn't exist
-                worksheet = sheet.add_worksheet(title=month, rows=1000, cols=20)
-            
-            # Clear existing data (keep header)
-            worksheet.clear()
-            
-            # Write header row
-            headers = [
-                "Date", "Water (AM)", "Made Bed", "Opened Blinds", 
-                "Face Routine (AM)", "Meds", "T-Break", "Journaling",
-                "Ate at Home", "Face Routine (PM)", "Water (PM)", "Reading",
-                "Calories", "Protein (g)", "Steps", "Sleep (hrs)", 
-                "Sleep Quality", "Screen Time (hrs)"
+            row = [
+                log.date,
+                "✓" if log.water_morning else "✗",
+                "✓" if log.bed else "✗",
+                "✓" if log.blinds else "✗",
+                "✓" if log.face_routine_morning else "✗",
+                "✓" if log.meds_taken else "✗",
+                "✓" if log.t_break else ("✗" if log.t_break == False else "—"),
+                "✓" if log.journaling else "✗",
+                "✓" if log.eat_at_home else "✗",
+                "✓" if log.face_routine_night else "✗",
+                "✓" if log.water_night else "✗",
+                "✓" if log.reading else "✗",
+                log.calories if log.calories else "—",
+                log.protein_g if log.protein_g else "—",
+                log.steps if log.steps else "—",
+                log.sleep_hours if log.sleep_hours else "—",
+                log.sleep_quality if log.sleep_quality else "—",
+                log.screen_time_hours if log.screen_time_hours else "—",
             ]
-            worksheet.append_row(headers)
-            
-            # Write data rows (oldest to newest)
-            for log in logs:
-                row = [
-                    log.date,
-                    "✓" if log.water_morning else "✗",
-                    "✓" if log.bed else "✗",
-                    "✓" if log.blinds else "✗",
-                    "✓" if log.face_routine_morning else "✗",
-                    "✓" if log.meds_taken else "✗",
-                    "✓" if log.t_break else ("✗" if log.t_break == False else "—"),
-                    "✓" if log.journaling else "✗",
-                    "✓" if log.eat_at_home else "✗",
-                    "✓" if log.face_routine_night else "✗",
-                    "✓" if log.water_night else "✗",
-                    "✓" if log.reading else "✗",
-                    log.calories if log.calories else "—",
-                    log.protein_g if log.protein_g else "—",
-                    log.steps if log.steps else "—",
-                    log.sleep_hours if log.sleep_hours else "—",
-                    log.sleep_quality if log.sleep_quality else "—",
-                    log.screen_time_hours if log.screen_time_hours else "—",
-                ]
-                worksheet.append_row(row)
-            
-            print(f"✅ Synced {month}: {len(logs)} logs")
+            worksheet.append_row(row)
         
-        print(f"✅ Google Sheets sync complete: {len(logs_by_month)} months")
+        print(f"✅ Google Sheets sync complete: {len(all_logs)} logs synced")
     
     except Exception as e:
         print(f"❌ Error syncing to Google Sheets: {e}")
