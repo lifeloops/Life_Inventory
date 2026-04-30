@@ -60,6 +60,9 @@ class DailyLog(Base):
     water_night = Column(Boolean, default=False)
     reading = Column(Boolean, default=False)
     
+    # Optional text fields
+    gratitude = Column(String, default=None)  # Gratitude entry
+    
     # Auto-pulled metrics (from Apple Health, MyFitnessPal, iPhone)
     calories = Column(Float, default=None)
     protein_g = Column(Float, default=None)
@@ -113,6 +116,7 @@ class DailyLogSchema(BaseModel):
     face_routine_night: Optional[bool] = None
     water_night: Optional[bool] = None
     reading: Optional[bool] = None
+    gratitude: Optional[str] = None
     calories: Optional[float] = None
     protein_g: Optional[float] = None
     steps: Optional[int] = None
@@ -186,8 +190,7 @@ def sync_to_google_sheets():
             "Date", "Water (AM)", "Made Bed", "Opened Blinds", 
             "Face Routine (AM)", "Meds", "T-Break", "Journaling",
             "Ate at Home", "Face Routine (PM)", "Water (PM)", "Reading",
-            "Calories", "Protein (g)", "Steps", "Sleep (hrs)", 
-            "Sleep Quality", "Screen Time (hrs)", "Temperature (F)"
+            "Temperature (F)", "Gratitude"
         ]
         worksheet.append_row(headers)
         print(f"📋 Added header row")
@@ -209,13 +212,8 @@ def sync_to_google_sheets():
                     "✓" if log.face_routine_night else "✗",
                     "✓" if log.water_night else "✗",
                     "✓" if log.reading else "✗",
-                    log.calories if log.calories else "—",
-                    log.protein_g if log.protein_g else "—",
-                    log.steps if log.steps else "—",
-                    log.sleep_hours if log.sleep_hours else "—",
-                    log.sleep_quality if log.sleep_quality else "—",
-                    log.screen_time_hours if log.screen_time_hours else "—",
                     log.temperature if log.temperature else "—",
+                    log.gratitude if log.gratitude else "—",
                 ]
                 worksheet.append_row(row)
                 if (i + 1) % 10 == 0:
@@ -303,6 +301,13 @@ def parse_telegram_message(text: str) -> dict:
         match = re.search(r'temp[:\s]+(\d+\.?\d*)', text_lower)
         if match:
             habits["temperature"] = float(match.group(1))
+    
+    # Gratitude - extract "gratitude: ..." or "grateful: ..."
+    if "gratitude" in text_lower or "grateful" in text_lower:
+        import re
+        match = re.search(r'gratit?ude[:\s]+(.+?)(?:\n|$)', text, re.IGNORECASE)
+        if match:
+            habits["gratitude"] = match.group(1).strip()
     
     return habits
 
