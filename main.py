@@ -551,33 +551,86 @@ async def sync_apple_health(date: str):
 @app.post("/integrations/apple_health/webhook")
 async def apple_health_webhook(request: Request):
     """
-    Receive Apple Health data from iOS Shortcut webhook
-    Expects: {date, steps, sleep_hours, sleep_quality, screen_time}
+    Receive Apple Health data from AutoExport
+    Parses AutoExport JSON format and maps metrics to database fields
     """
     data = await request.json()
-    date = data.get("date")
     
     db = SessionLocal()
     try:
-        log = db.query(DailyLog).filter(DailyLog.date == date).first()
+        # Handle AutoExport format (nested data array)
+        if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
+            health_data = data["data"][0]  # Get first (usually only) day's data
+        else:
+            health_data = data
+        
+        # Extract date
+        date_str = health_data.get("date")
+        if not date_str:
+            return JSONResponse({"error": "No date found in request"}, status_code=400)
+        
+        # Parse date if it's in format like "April 30, 2026" → "2026-04-30"
+        try:
+            from datetime import datetime
+            if "," in date_str:  # Format: "April 30, 2026"
+                date_obj = datetime.strptime(date_str, "%B %d, %Y")
+                date_str = date_obj.strftime("%Y-%m-%d")
+        except:
+            pass  # Use date_str as-is if parsing fails
+        
+        # Get or create log
+        log = db.query(DailyLog).filter(DailyLog.date == date_str).first()
         if not log:
-            log = DailyLog(date=date)
+            log = DailyLog(date=date_str)
             db.add(log)
         
-        # Update metrics
-        if "steps" in data:
-            log.steps = data["steps"]
-        if "sleep_hours" in data:
-            log.sleep_hours = data["sleep_hours"]
-        if "sleep_quality" in data:
-            log.sleep_quality = data["sleep_quality"]
-        if "screen_time" in data:
-            log.screen_time_hours = data["screen_time"]
+        # Map AutoExport metric names to database fields
+        metrics_map = {
+            "Step Count": "steps",
+            "Active Energy": "calories",
+            "Sleep Analysis": "sleep_hours",
+            "Mindful Minutes": "sleep_hours",  # Fallback if Sleep Analysis not available
+            "Screen Time": "screen_time_hours",
+            "Environmental Audio Exposure": "screen_time_hours",  # Fallback
+        }
+        
+        # Extract and map metrics
+        if "Step Count" in health_data:
+            log.steps = int(health_data.get("Step Count", 0))
+        
+        if "Active Energy" in health_data:
+            log.calories = float(health_data.get("Active Energy", 0))
+        
+        # Handle sleep - might be nested object or simple number
+        sleep_val = health_data.get("Sleep Analysis")
+        if sleep_val:
+            if isinstance(sleep_val, dict):
+                log.sleep_hours = float(sleep_val.get("value", 0))
+            else:
+                log.sleep_hours = float(sleep_val)
+        elif "Mindful Minutes" in health_data:
+            log.sleep_hours = float(health_data.get("Mindful Minutes", 0))
+        
+        # Handle screen time
+        screen_val = health_data.get("Screen Time")
+        if screen_val:
+            if isinstance(screen_val, dict):
+                log.screen_time_hours = float(screen_val.get("value", 0))
+            else:
+                log.screen_time_hours = float(screen_val)
+        
+        # Sleep quality (not provided by AutoExport, set to null)
+        # User will provide this via Telegram
         
         db.commit()
-        return {"status": "ok", "date": date}
+        print(f"✅ Apple Health webhook received: {date_str} - Steps: {log.steps}, Calories: {log.calories}, Sleep: {log.sleep_hours}h, Screen: {log.screen_time_hours}h")
+        return {"status": "ok", "date": date_str}
+    
     except Exception as e:
         db.rollback()
+        print(f"❌ Error processing Apple Health webhook: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=400)
     finally:
         db.close()
