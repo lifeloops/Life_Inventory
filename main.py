@@ -582,18 +582,23 @@ async def apple_health_webhook(request: Request):
         
         # Iterate through all metrics in the payload
         for metric_key, metric_data in data.items():
+            print(f"📍 Checking metric: {metric_key}")
             if not isinstance(metric_data, dict) or "data" not in metric_data:
+                print(f"   ❌ Not a dict or no 'data' field")
                 continue
             
             data_array = metric_data.get("data", [])
             if not data_array or len(data_array) == 0:
+                print(f"   ❌ Empty data array")
                 continue
             
             first_entry = data_array[0]
+            print(f"   First entry keys: {list(first_entry.keys())}")
             
             # Extract date from first entry (all should be same date)
             if not date_str and "date" in first_entry:
                 date_str = first_entry["date"]
+                print(f"   ✅ Found date: {date_str}")
             
             # Get the quantity/value
             qty = first_entry.get("qty", first_entry.get("value", 0))
