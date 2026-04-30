@@ -393,6 +393,11 @@ async def telegram_webhook(request: Request):
         # Confirmation message
         habit_names = ", ".join([h.replace("_", " ").title() for h in habits.keys()])
         await send_telegram_message(f"✅ Logged: {habit_names}")
+
+        # Sync to Google Sheets immediately
+        print("📤 Syncing to Google Sheets...")
+        sync_to_google_sheets()
+        print("✅ Google Sheets updated")
         
     except Exception as e:
         db.rollback()
