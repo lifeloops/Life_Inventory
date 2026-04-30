@@ -556,6 +556,14 @@ async def apple_health_webhook(request: Request):
     """
     data = await request.json()
     
+    # Log what we received for debugging
+    print(f"📥 Received AutoExport webhook:")
+    print(f"Top-level keys: {list(data.keys())}")
+    if "data" in data:
+        print(f"Data array length: {len(data['data'])}")
+        if len(data["data"]) > 0:
+            print(f"First data item keys: {list(data['data'][0].keys())}")
+    
     db = SessionLocal()
     try:
         # Handle AutoExport format (nested data array)
@@ -567,7 +575,8 @@ async def apple_health_webhook(request: Request):
         # Extract date
         date_str = health_data.get("date")
         if not date_str:
-            return JSONResponse({"error": "No date found in request"}, status_code=400)
+            print(f"❌ No date field found. Available fields: {list(health_data.keys())}")
+            return JSONResponse({"error": f"No date found in request. Available fields: {list(health_data.keys())}"}, status_code=400)
         
         # Parse date if it's in format like "April 30, 2026" → "2026-04-30"
         try:
