@@ -67,6 +67,7 @@ class DailyLog(Base):
     sleep_hours = Column(Float, default=None)
     sleep_quality = Column(Integer, default=None)  # 1-5 scale
     screen_time_hours = Column(Float, default=None)
+    temperature = Column(Float, default=None)  # Body temperature in F
     
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -118,6 +119,7 @@ class DailyLogSchema(BaseModel):
     sleep_hours: Optional[float] = None
     sleep_quality: Optional[int] = None
     screen_time_hours: Optional[float] = None
+    temperature: Optional[float] = None
 
 # =====================
 # GOOGLE SHEETS UTILITIES
@@ -185,7 +187,7 @@ def sync_to_google_sheets():
             "Face Routine (AM)", "Meds", "T-Break", "Journaling",
             "Ate at Home", "Face Routine (PM)", "Water (PM)", "Reading",
             "Calories", "Protein (g)", "Steps", "Sleep (hrs)", 
-            "Sleep Quality", "Screen Time (hrs)"
+            "Sleep Quality", "Screen Time (hrs)", "Temperature (F)"
         ]
         worksheet.append_row(headers)
         print(f"📋 Added header row")
@@ -213,6 +215,7 @@ def sync_to_google_sheets():
                     log.sleep_hours if log.sleep_hours else "—",
                     log.sleep_quality if log.sleep_quality else "—",
                     log.screen_time_hours if log.screen_time_hours else "—",
+                    log.temperature if log.temperature else "—",
                 ]
                 worksheet.append_row(row)
                 if (i + 1) % 10 == 0:
@@ -293,6 +296,13 @@ def parse_telegram_message(text: str) -> dict:
         habits["face_routine_night"] = True
     if "water" in text_lower and "night" in text_lower:
         habits["water_night"] = True
+    
+    # Temperature - extract "temp: 98.6F" or "temp 98.6"
+    if "temp" in text_lower:
+        import re
+        match = re.search(r'temp[:\s]+(\d+\.?\d*)', text_lower)
+        if match:
+            habits["temperature"] = float(match.group(1))
     
     return habits
 
@@ -393,11 +403,6 @@ async def telegram_webhook(request: Request):
         # Confirmation message
         habit_names = ", ".join([h.replace("_", " ").title() for h in habits.keys()])
         await send_telegram_message(f"✅ Logged: {habit_names}")
-
-        # Sync to Google Sheets immediately
-        print("📤 Syncing to Google Sheets...")
-        sync_to_google_sheets()
-        print("✅ Google Sheets updated")
         
     except Exception as e:
         db.rollback()
