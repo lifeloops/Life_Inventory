@@ -564,26 +564,60 @@ async def apple_health_webhook(request: Request):
     
     db = SessionLocal()
     try:
-        # Handle AutoExport format (nested data array)
-        if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
-            health_data = data["data"][0]  # Get first (usually only) day's data
-        else:
-            health_data = data
+        # AutoExport sends data organized by metric name
+        # Each metric has structure: {"metric_name": {"name": "...", "data": [{date, qty, source}, ...]}}
         
-        # Extract date
-        date_str = health_data.get("date")
+        date_str = None
+        metrics = {}
+        
+        # Map metric names that AutoExport sends to our database fields
+        # Need to look for: steps, calories, sleep_hours, screen_time_hours
+        metric_map = {
+            "step_count": "steps",
+            "active_energy": "calories",
+            "basal_energy_burned": "calories",  # fallback
+            "sleep_analysis": "sleep_hours",
+            "screen_time": "screen_time_hours",
+        }
+        
+        # Iterate through all metrics in the payload
+        for metric_key, metric_data in data.items():
+            if not isinstance(metric_data, dict) or "data" not in metric_data:
+                continue
+            
+            data_array = metric_data.get("data", [])
+            if not data_array or len(data_array) == 0:
+                continue
+            
+            first_entry = data_array[0]
+            
+            # Extract date from first entry (all should be same date)
+            if not date_str and "date" in first_entry:
+                date_str = first_entry["date"]
+            
+            # Get the quantity/value
+            qty = first_entry.get("qty", first_entry.get("value", 0))
+            
+            # Map metric to our field
+            metric_key_lower = metric_key.lower()
+            if metric_key_lower in metric_map:
+                field_name = metric_map[metric_key_lower]
+                metrics[field_name] = qty
+                print(f"  📊 {metric_key}: {qty}")
+        
         if not date_str:
-            print(f"❌ No date field found. Available fields: {list(health_data.keys())}")
-            return JSONResponse({"error": f"No date found in request. Available fields: {list(health_data.keys())}"}, status_code=400)
+            print(f"❌ No date found in any metric")
+            return JSONResponse({"error": "No date found in metrics"}, status_code=400)
         
-        # Parse date if it's in format like "April 30, 2026" → "2026-04-30"
+        # Parse date: "2026-04-26 00:00:00 -0400" → "2026-04-26"
         try:
-            from datetime import datetime
-            if "," in date_str:  # Format: "April 30, 2026"
-                date_obj = datetime.strptime(date_str, "%B %d, %Y")
-                date_str = date_obj.strftime("%Y-%m-%d")
+            if " " in date_str:
+                date_str = date_str.split(" ")[0]  # Extract YYYY-MM-DD part
         except:
-            pass  # Use date_str as-is if parsing fails
+            pass
+        
+        print(f"✅ Extracted date: {date_str}")
+        print(f"✅ Extracted metrics: {metrics}")
         
         # Get or create log
         log = db.query(DailyLog).filter(DailyLog.date == date_str).first()
@@ -591,47 +625,20 @@ async def apple_health_webhook(request: Request):
             log = DailyLog(date=date_str)
             db.add(log)
         
-        # Map AutoExport metric names to database fields
-        metrics_map = {
-            "Step Count": "steps",
-            "Active Energy": "calories",
-            "Sleep Analysis": "sleep_hours",
-            "Mindful Minutes": "sleep_hours",  # Fallback if Sleep Analysis not available
-            "Screen Time": "screen_time_hours",
-            "Environmental Audio Exposure": "screen_time_hours",  # Fallback
-        }
-        
-        # Extract and map metrics
-        if "Step Count" in health_data:
-            log.steps = int(health_data.get("Step Count", 0))
-        
-        if "Active Energy" in health_data:
-            log.calories = float(health_data.get("Active Energy", 0))
-        
-        # Handle sleep - might be nested object or simple number
-        sleep_val = health_data.get("Sleep Analysis")
-        if sleep_val:
-            if isinstance(sleep_val, dict):
-                log.sleep_hours = float(sleep_val.get("value", 0))
-            else:
-                log.sleep_hours = float(sleep_val)
-        elif "Mindful Minutes" in health_data:
-            log.sleep_hours = float(health_data.get("Mindful Minutes", 0))
-        
-        # Handle screen time
-        screen_val = health_data.get("Screen Time")
-        if screen_val:
-            if isinstance(screen_val, dict):
-                log.screen_time_hours = float(screen_val.get("value", 0))
-            else:
-                log.screen_time_hours = float(screen_val)
-        
-        # Sleep quality (not provided by AutoExport, set to null)
-        # User will provide this via Telegram
+        # Update metrics
+        if "steps" in metrics:
+            log.steps = int(metrics["steps"])
+        if "calories" in metrics:
+            log.calories = float(metrics["calories"])
+        if "sleep_hours" in metrics:
+            log.sleep_hours = float(metrics["sleep_hours"])
+        if "screen_time_hours" in metrics:
+            log.screen_time_hours = float(metrics["screen_time_hours"])
         
         db.commit()
-        print(f"✅ Apple Health webhook received: {date_str} - Steps: {log.steps}, Calories: {log.calories}, Sleep: {log.sleep_hours}h, Screen: {log.screen_time_hours}h")
-        return {"status": "ok", "date": date_str}
+        print(f"✅ Apple Health webhook processed: {date_str}")
+        print(f"   Steps: {log.steps}, Calories: {log.calories}, Sleep: {log.sleep_hours}h, Screen: {log.screen_time_hours}h")
+        return {"status": "ok", "date": date_str, "metrics": metrics}
     
     except Exception as e:
         db.rollback()
