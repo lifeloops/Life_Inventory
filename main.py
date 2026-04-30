@@ -559,10 +559,8 @@ async def apple_health_webhook(request: Request):
     # Log what we received for debugging
     print(f"📥 Received AutoExport webhook:")
     print(f"Top-level keys: {list(data.keys())}")
-    if "data" in data:
-        print(f"Data array length: {len(data['data'])}")
-        if len(data["data"]) > 0:
-            print(f"First data item keys: {list(data['data'][0].keys())}")
+    print(f"📄 Full JSON (first 3000 chars):")
+    print(json.dumps(data, indent=2)[:3000])
     
     db = SessionLocal()
     try:
