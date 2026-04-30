@@ -564,86 +564,85 @@ async def apple_health_webhook(request: Request):
     
     db = SessionLocal()
     try:
-        # AutoExport sends data organized by metric name
-        # Each metric has structure: {"metric_name": {"name": "...", "data": [{date, qty, source}, ...]}}
+        # AutoExport sends: {"metrics": [{name: "step_count", data: [{qty, date}, ...]}, ...]}
+        metrics_array = data.get("metrics", [])
+        if not metrics_array or len(metrics_array) == 0:
+            print(f"❌ No metrics array found")
+            return JSONResponse({"error": "No metrics array in request"}, status_code=400)
         
-        date_str = None
-        metrics = {}
+        print(f"📊 Processing {len(metrics_array)} metrics")
         
-        # Map metric names that AutoExport sends to our database fields
-        # Need to look for: steps, calories, sleep_hours, screen_time_hours
+        # Group by date and metric
+        date_metrics = {}  # {date: {steps: X, calories: Y, ...}}
+        
+        # Map metric names that AutoExport sends (snake_case) to our database fields
         metric_map = {
             "step_count": "steps",
             "active_energy": "calories",
-            "basal_energy_burned": "calories",  # fallback
+            "basal_energy_burned": "calories",
             "sleep_analysis": "sleep_hours",
             "screen_time": "screen_time_hours",
         }
         
-        # Iterate through all metrics in the payload
-        for metric_key, metric_data in data.items():
-            print(f"📍 Checking metric: {metric_key}")
-            if not isinstance(metric_data, dict) or "data" not in metric_data:
-                print(f"   ❌ Not a dict or no 'data' field")
+        # Process each metric
+        for metric in metrics_array:
+            metric_name = metric.get("name", "").lower()
+            metric_data = metric.get("data", [])
+            
+            print(f"📍 Processing metric: {metric_name} ({len(metric_data)} entries)")
+            
+            if not metric_data:
                 continue
             
-            data_array = metric_data.get("data", [])
-            if not data_array or len(data_array) == 0:
-                print(f"   ❌ Empty data array")
+            # Get first data entry (they should all be same date with aggregation ON)
+            first_entry = metric_data[0]
+            date_str = first_entry.get("date", "")
+            qty = first_entry.get("qty", 0)
+            
+            if not date_str:
+                print(f"   ❌ No date in {metric_name}")
                 continue
             
-            first_entry = data_array[0]
-            print(f"   First entry keys: {list(first_entry.keys())}")
+            # Extract YYYY-MM-DD from "2026-04-26 00:00:00 -0400" or "2026-04-26"
+            if " " in date_str:
+                date_str = date_str.split(" ")[0]
             
-            # Extract date from first entry (all should be same date)
-            if not date_str and "date" in first_entry:
-                date_str = first_entry["date"]
-                print(f"   ✅ Found date: {date_str}")
-            
-            # Get the quantity/value
-            qty = first_entry.get("qty", first_entry.get("value", 0))
+            # Initialize date entry if needed
+            if date_str not in date_metrics:
+                date_metrics[date_str] = {}
             
             # Map metric to our field
-            metric_key_lower = metric_key.lower()
-            if metric_key_lower in metric_map:
-                field_name = metric_map[metric_key_lower]
-                metrics[field_name] = qty
-                print(f"  📊 {metric_key}: {qty}")
+            if metric_name in metric_map:
+                field_name = metric_map[metric_name]
+                date_metrics[date_str][field_name] = qty
+                print(f"   ✅ {metric_name} → {field_name}: {qty}")
         
-        if not date_str:
-            print(f"❌ No date found in any metric")
-            return JSONResponse({"error": "No date found in metrics"}, status_code=400)
+        if not date_metrics:
+            print(f"❌ No valid metrics extracted")
+            return JSONResponse({"error": "No valid metrics found"}, status_code=400)
         
-        # Parse date: "2026-04-26 00:00:00 -0400" → "2026-04-26"
-        try:
-            if " " in date_str:
-                date_str = date_str.split(" ")[0]  # Extract YYYY-MM-DD part
-        except:
-            pass
+        # Save to database
+        for date_str, metrics in date_metrics.items():
+            print(f"\n💾 Saving date {date_str}: {metrics}")
+            
+            log = db.query(DailyLog).filter(DailyLog.date == date_str).first()
+            if not log:
+                log = DailyLog(date=date_str)
+                db.add(log)
+            
+            if "steps" in metrics:
+                log.steps = int(metrics["steps"])
+            if "calories" in metrics:
+                log.calories = float(metrics["calories"])
+            if "sleep_hours" in metrics:
+                log.sleep_hours = float(metrics["sleep_hours"])
+            if "screen_time_hours" in metrics:
+                log.screen_time_hours = float(metrics["screen_time_hours"])
+            
+            db.commit()
+            print(f"✅ Saved {date_str}: Steps={log.steps}, Cal={log.calories}, Sleep={log.sleep_hours}h, Screen={log.screen_time_hours}h")
         
-        print(f"✅ Extracted date: {date_str}")
-        print(f"✅ Extracted metrics: {metrics}")
-        
-        # Get or create log
-        log = db.query(DailyLog).filter(DailyLog.date == date_str).first()
-        if not log:
-            log = DailyLog(date=date_str)
-            db.add(log)
-        
-        # Update metrics
-        if "steps" in metrics:
-            log.steps = int(metrics["steps"])
-        if "calories" in metrics:
-            log.calories = float(metrics["calories"])
-        if "sleep_hours" in metrics:
-            log.sleep_hours = float(metrics["sleep_hours"])
-        if "screen_time_hours" in metrics:
-            log.screen_time_hours = float(metrics["screen_time_hours"])
-        
-        db.commit()
-        print(f"✅ Apple Health webhook processed: {date_str}")
-        print(f"   Steps: {log.steps}, Calories: {log.calories}, Sleep: {log.sleep_hours}h, Screen: {log.screen_time_hours}h")
-        return {"status": "ok", "date": date_str, "metrics": metrics}
+        return {"status": "ok", "dates_saved": list(date_metrics.keys())}
     
     except Exception as e:
         db.rollback()
