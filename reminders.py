@@ -4,6 +4,7 @@ from datetime import date, timedelta, datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import create_engine, text
 from anthropic import AsyncAnthropic
+from tavily import AsyncTavilyClient
 
 engine = create_engine(os.environ["DATABASE_URL"])
 
@@ -12,6 +13,7 @@ CHAT_ID = os.environ["TELEGRAM_USER_ID"]
 TG_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 anthropic_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+tavily_client = AsyncTavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 
 ET = ZoneInfo("America/New_York")
 
@@ -115,17 +117,20 @@ async def goodnight_msg() -> None:
 
 
 async def handle_hey(text: str, scheduler) -> str:
-    """Route 'hey' messages — schedule a reminder or respond conversationally."""
-    sys = (
+    """Route 'hey' messages — search, reminder, or conversational."""
+    # Step 1: Claude decides what to do
+    routing_sys = (
         "You are Lo's personal assistant on Telegram. "
-        "If the message is asking to set a reminder, respond ONLY in this exact format: "
-        "REMINDER|HH:MM|task description (24-hour time). "
-        "Otherwise respond conversationally — warm, brief, no emojis."
+        "Decide how to handle the message:\n"
+        "- If it needs current/real-time info (weather, transit, news, prices, schedules): respond ONLY with SEARCH|<specific search query>\n"
+        "- If it's asking to set a reminder: respond ONLY with REMINDER|HH:MM|task description (24-hour time)\n"
+        "- Otherwise: respond conversationally, warm, brief, no emojis."
     )
-    response = await call_claude(sys, text)
+    decision = await call_claude(routing_sys, text)
 
-    if response.startswith("REMINDER|"):
-        parts = response.split("|", 2)
+    # Reminder
+    if decision.startswith("REMINDER|"):
+        parts = decision.split("|", 2)
         if len(parts) == 3:
             _, time_str, task = parts
             try:
@@ -140,4 +145,15 @@ async def handle_hey(text: str, scheduler) -> str:
             except ValueError:
                 return "Couldn't parse the time for that reminder."
 
-    return response
+    # Search
+    if decision.startswith("SEARCH|"):
+        query = decision.split("|", 1)[1].strip()
+        results = await tavily_client.search(query, search_depth="basic", max_results=3)
+        answer = results.get("answer") or "\n".join(
+            r["content"] for r in results.get("results", [])[:2]
+        )
+        summary_sys = "Summarize this search result for Lo in 2-3 sentences. Be direct and factual. No emojis."
+        return await call_claude(summary_sys, f"Question: {text}\nSearch results: {answer}")
+
+    # Conversational
+    return decision
