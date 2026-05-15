@@ -60,9 +60,16 @@ class DailyLog(Base):
     water_night = Column(Boolean, default=False)
     reading = Column(Boolean, default=False)
     
+    # New tracked fields
+    morning_routine = Column(String, default=None)
+    social_media_goal = Column(Boolean, default=None)
+    focus_activity = Column(String, default=None)
+    movement_minutes = Column(Integer, default=None)
+    night_routine = Column(String, default=None)
+
     # Optional text fields
-    gratitude = Column(String, default=None)  # Gratitude entry
-    
+    gratitude = Column(String, default=None)
+
     # Auto-pulled metrics (from Apple Health, MyFitnessPal, iPhone)
     calories = Column(Float, default=None)
     protein_g = Column(Float, default=None)
@@ -124,6 +131,11 @@ class DailyLogSchema(BaseModel):
     sleep_quality: Optional[int] = None
     screen_time_hours: Optional[float] = None
     temperature: Optional[float] = None
+    morning_routine: Optional[str] = None
+    social_media_goal: Optional[bool] = None
+    focus_activity: Optional[str] = None
+    movement_minutes: Optional[int] = None
+    night_routine: Optional[str] = None
 
 # =====================
 # GOOGLE SHEETS UTILITIES
@@ -258,57 +270,56 @@ async def send_reminder(reminder_type: str):
 
 
 def parse_telegram_message(text: str) -> dict:
-    """
-    Parse loose telegram messages and extract habits
-    Examples:
-    - "yes water and routine, took meds" → {water_morning: True, bed: True, blinds: True, face_routine_morning: True, meds_taken: True}
-    - "journaled and ate home" → {journaling: True, eat_at_home: True}
-    """
-    text_lower = text.lower()
     habits = {}
-    
-    # Morning habits
+
+    # Prefix-based parsing (structured: "key: value" per line)
+    prefix_map = {
+        "morning":   ("morning_routine",   lambda v: v.strip().lower()),
+        "meds":      ("meds_taken",        lambda v: v.strip().lower() in ("y", "yes")),
+        "sleep":     ("sleep_hours",       lambda v: float(v.strip())),
+        "screen":    ("social_media_goal", lambda v: v.strip().lower() in ("y", "yes")),
+        "focus":     ("focus_activity",    lambda v: v.strip().upper()[0]),
+        "movement":  ("movement_minutes",  lambda v: int("".join(c for c in v if c.isdigit()) or 0)),
+        "night":     ("night_routine",     lambda v: v.strip().lower()),
+        "temp":      ("temperature",       lambda v: float(v.strip())),
+        "gratitude": ("gratitude",         lambda v: v.strip()),
+    }
+    for line in text.split("\n"):
+        if ":" in line:
+            key, _, val = line.partition(":")
+            key = key.strip().lower()
+            if key in prefix_map and val.strip():
+                col, fn = prefix_map[key]
+                try:
+                    habits[col] = fn(val)
+                except (ValueError, IndexError):
+                    pass
+
+    # Keyword-based fallback for free-text messages
+    text_lower = text.lower()
     if any(word in text_lower for word in ["water", "drank water"]):
-        habits["water_morning"] = True
+        habits.setdefault("water_morning", True)
     if "bed" in text_lower or "made bed" in text_lower:
-        habits["bed"] = True
+        habits.setdefault("bed", True)
     if "blind" in text_lower or "opened blind" in text_lower:
-        habits["blinds"] = True
+        habits.setdefault("blinds", True)
     if "face routine" in text_lower or "wash face" in text_lower or "skincare" in text_lower:
-        habits["face_routine_morning"] = True
+        habits.setdefault("face_routine_morning", True)
     if "med" in text_lower or "took med" in text_lower or "all 3" in text_lower:
-        habits["meds_taken"] = True
-    
-    # Afternoon
+        habits.setdefault("meds_taken", True)
     if "t-break" in text_lower or "t break" in text_lower:
-        habits["t_break"] = "yes" in text_lower or "took" in text_lower
-    
-    # Evening habits
+        habits.setdefault("t_break", "yes" in text_lower or "took" in text_lower)
     if "journal" in text_lower or "journaled" in text_lower:
-        habits["journaling"] = True
+        habits.setdefault("journaling", True)
     if "read" in text_lower or "reading" in text_lower:
-        habits["reading"] = True
+        habits.setdefault("reading", True)
     if "eat at home" in text_lower or "ate home" in text_lower or "cooked" in text_lower:
-        habits["eat_at_home"] = True
+        habits.setdefault("eat_at_home", True)
     if "night routine" in text_lower or "face routine" in text_lower or "skincare" in text_lower:
-        habits["face_routine_night"] = True
+        habits.setdefault("face_routine_night", True)
     if "water" in text_lower and "night" in text_lower:
-        habits["water_night"] = True
-    
-    # Temperature - extract "temp: 98.6F" or "temp 98.6"
-    if "temp" in text_lower:
-        import re
-        match = re.search(r'temp[:\s]+(\d+\.?\d*)', text_lower)
-        if match:
-            habits["temperature"] = float(match.group(1))
-    
-    # Gratitude - extract "gratitude: ..." or "grateful: ..."
-    if "gratitude" in text_lower or "grateful" in text_lower:
-        import re
-        match = re.search(r'gratit?ude[:\s]+(.+?)(?:\n|$)', text, re.IGNORECASE)
-        if match:
-            habits["gratitude"] = match.group(1).strip()
-    
+        habits.setdefault("water_night", True)
+
     return habits
 
 
