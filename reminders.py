@@ -3,7 +3,7 @@ import httpx
 from datetime import date, timedelta, datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import create_engine, text
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 
 engine = create_engine(os.environ["DATABASE_URL"])
 
@@ -11,7 +11,7 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_USER_ID"]
 TG_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+anthropic_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 ET = ZoneInfo("America/New_York")
 
@@ -69,8 +69,8 @@ def recent_ctx() -> dict:
     }
 
 
-def call_claude(system: str, user: str) -> str:
-    r = anthropic_client.messages.create(
+async def call_claude(system: str, user: str) -> str:
+    r = await anthropic_client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=300,
         system=system,
@@ -85,7 +85,7 @@ async def morning_msg() -> None:
         "Brief, warm good-morning for Lo. 1-2 sentences. Weave in recent "
         "data conversationally only when notable. No emojis, not saccharine."
     )
-    greeting = call_claude(sys, f"Context: {ctx}. Write the good morning.")
+    greeting = await call_claude(sys, f"Context: {ctx}. Write the good morning.")
     await send_tg(greeting + MORNING_PROMPTS)
 
 
@@ -110,20 +110,19 @@ async def goodnight_msg() -> None:
         "No emojis. Not saccharine. Conversational. "
         "End with: 'Just reply with hey to chat it through.'"
     )
-    msg = call_claude(sys, f"Today's data: {ctx}. Write the 10pm message.")
+    msg = await call_claude(sys, f"Today's data: {ctx}. Write the 10pm message.")
     await send_tg(msg)
 
 
 async def handle_hey(text: str, scheduler) -> str:
     """Route 'hey' messages — schedule a reminder or respond conversationally."""
-    import asyncio
     sys = (
         "You are Lo's personal assistant on Telegram. "
         "If the message is asking to set a reminder, respond ONLY in this exact format: "
         "REMINDER|HH:MM|task description (24-hour time). "
         "Otherwise respond conversationally — warm, brief, no emojis."
     )
-    response = await asyncio.to_thread(call_claude, sys, text)
+    response = await call_claude(sys, text)
 
     if response.startswith("REMINDER|"):
         parts = response.split("|", 2)
