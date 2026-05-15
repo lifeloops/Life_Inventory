@@ -402,7 +402,11 @@ async def telegram_webhook(request: Request):
 
     # "hey" prefix → route to Claude (chat or reminder)
     if text.lower().startswith("hey"):
-        response = await handle_hey(text, scheduler)
+        try:
+            response = await handle_hey(text, scheduler)
+        except Exception as e:
+            print(f"❌ handle_hey error: {e}")
+            response = f"Something went wrong: {str(e)}"
         await send_telegram_message(response)
         return JSONResponse({"ok": True})
 
