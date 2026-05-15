@@ -6,7 +6,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from reminders import morning_msg, midday_msg, afternoon_msg, evening_msg
+from reminders import morning_msg, midday_msg, afternoon_msg, evening_msg, goodnight_msg, handle_hey
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -330,22 +330,24 @@ def parse_telegram_message(text: str) -> dict:
 # =====================
 
 app = FastAPI(title="Health Tracker API")
+scheduler = None
 
 @app.on_event("startup")
 async def startup():
     """Initialize database and scheduler on startup"""
+    global scheduler
     Base.metadata.create_all(bind=engine)
     print("✅ Database initialized")
-    
-    # Start scheduler (America/New_York)
+
     scheduler = AsyncIOScheduler(timezone="America/New_York")
     scheduler.add_job(sync_to_google_sheets, "cron", hour=23, minute=0)
     scheduler.add_job(morning_msg,   "cron", hour=9,  minute=0)
     scheduler.add_job(midday_msg,    "cron", hour=15, minute=0)
     scheduler.add_job(afternoon_msg, "cron", hour=17, minute=0)
     scheduler.add_job(evening_msg,   "cron", hour=20, minute=0)
+    scheduler.add_job(goodnight_msg, "cron", hour=22, minute=0)
     scheduler.start()
-    print("✅ Scheduler started (ET): reminders 9am/3pm/5pm/8pm, Sheets 11pm")
+    print("✅ Scheduler started (ET): 9am/3pm/5pm/8pm/10pm, Sheets 11pm")
 
 
 @app.get("/health")
@@ -397,7 +399,13 @@ async def telegram_webhook(request: Request):
     # Security: only accept from your user ID
     if str(user_id) != str(TELEGRAM_USER_ID):
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=403)
-    
+
+    # "hey" prefix → route to Claude (chat or reminder)
+    if text.lower().startswith("hey"):
+        response = await handle_hey(text, scheduler)
+        await send_telegram_message(response)
+        return JSONResponse({"ok": True})
+
     # Parse the message
     habits = parse_telegram_message(text)
     
@@ -704,6 +712,11 @@ async def _debug_afternoon():
 @app.get("/debug/evening")
 async def _debug_evening():
     await evening_msg()
+    return {"ok": True}
+
+@app.get("/debug/goodnight")
+async def _debug_goodnight():
+    await goodnight_msg()
     return {"ok": True}
 
 
