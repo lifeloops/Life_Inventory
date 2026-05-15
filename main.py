@@ -704,6 +704,16 @@ async def apple_health_webhook(request: Request):
         db.close()
 
 
+@app.get("/debug/claude")
+async def _debug_claude():
+    try:
+        from reminders import call_claude
+        response = await call_claude("Say hello briefly.", "Hello")
+        return {"ok": True, "response": response}
+    except Exception as e:
+        import traceback
+        return {"ok": False, "error": str(e), "type": type(e).__name__, "traceback": traceback.format_exc()}
+
 @app.get("/debug/morning")
 async def _debug_morning():
     await morning_msg()
