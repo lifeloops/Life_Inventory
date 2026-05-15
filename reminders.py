@@ -116,6 +116,16 @@ async def goodnight_msg() -> None:
     await send_tg(msg)
 
 
+# Conversation history (in-memory, resets on redeploy)
+_history: list[dict] = []
+MAX_HISTORY = 20  # keep last 10 exchanges
+
+def _remember(role: str, content: str):
+    _history.append({"role": role, "content": content})
+    if len(_history) > MAX_HISTORY:
+        del _history[:-MAX_HISTORY]
+
+
 SEARCH_TRIGGERS = [
     "weather", "forecast", "temperature",
     "schedule", "mta", "bus", "train", "subway", "route",
@@ -169,8 +179,21 @@ async def handle_hey(text: str, scheduler) -> str:
             r["content"] for r in results.get("results", [])[:2]
         )
         summary_sys = "Summarize this search result for Lo in 2-3 sentences. Be direct and factual. No emojis."
-        return await call_claude(summary_sys, f"Question: {text}\nSearch results: {answer}")
+        response = await call_claude(summary_sys, f"Question: {text}\nSearch results: {answer}")
+        _remember("user", text)
+        _remember("assistant", response)
+        return response
 
-    # Conversational
+    # Conversational — use full history so Claude remembers prior messages
     chat_sys = "You are Lo's personal assistant on Telegram. Respond conversationally — warm, brief, no emojis."
-    return await call_claude(chat_sys, text)
+    _remember("user", text)
+    messages = list(_history)
+    r = await anthropic_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        system=chat_sys,
+        messages=messages,
+    )
+    response = r.content[0].text.strip()
+    _remember("assistant", response)
+    return response
