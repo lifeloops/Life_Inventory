@@ -116,39 +116,55 @@ async def goodnight_msg() -> None:
     await send_tg(msg)
 
 
+SEARCH_TRIGGERS = [
+    "weather", "forecast", "temperature",
+    "schedule", "mta", "bus", "train", "subway", "route",
+    "news", "score", "price", "stock",
+    "look up", "search for", "find me", "what's the", "what is the",
+    "hours", "open", "when does",
+]
+
+def _needs_search(text: str) -> bool:
+    t = text.lower()
+    return any(kw in t for kw in SEARCH_TRIGGERS)
+
+def _needs_reminder(text: str) -> bool:
+    t = text.lower()
+    return "remind" in t or "reminder" in t or "set a reminder" in t
+
+
 async def handle_hey(text: str, scheduler) -> str:
     """Route 'hey' messages — search, reminder, or conversational."""
-    # Step 1: Claude decides what to do
-    routing_sys = (
-        "You are Lo's personal assistant on Telegram. "
-        "Decide how to handle the message:\n"
-        "- If it needs current/real-time info (weather, transit, news, prices, schedules): respond ONLY with SEARCH|<specific search query>\n"
-        "- If it's asking to set a reminder: respond ONLY with REMINDER|HH:MM|task description (24-hour time)\n"
-        "- Otherwise: respond conversationally, warm, brief, no emojis."
-    )
-    decision = await call_claude(routing_sys, text)
 
     # Reminder
-    if decision.startswith("REMINDER|"):
-        parts = decision.split("|", 2)
-        if len(parts) == 3:
-            _, time_str, task = parts
-            try:
-                hour, minute = map(int, time_str.strip().split(":"))
-                now = datetime.now(ET)
-                run_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if run_time > now:
-                    scheduler.add_job(send_tg, "date", run_date=run_time, args=[f"Reminder: {task}"])
-                    return f"Got it! Reminder set for {time_str} — {task}."
-                else:
-                    return "That time has already passed today."
-            except ValueError:
-                return "Couldn't parse the time for that reminder."
+    if _needs_reminder(text):
+        reminder_sys = (
+            "Extract the reminder time and task from this message. "
+            "Respond ONLY in this format: REMINDER|HH:MM|task description (24-hour time). "
+            "If no clear time is given, respond: REMINDER|NOTIME|task description."
+        )
+        decision = await call_claude(reminder_sys, text)
+        if decision.startswith("REMINDER|"):
+            parts = decision.split("|", 2)
+            if len(parts) == 3:
+                _, time_str, task = parts
+                if time_str == "NOTIME":
+                    return f"What time should I remind you to {task}?"
+                try:
+                    hour, minute = map(int, time_str.strip().split(":"))
+                    now = datetime.now(ET)
+                    run_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if run_time > now:
+                        scheduler.add_job(send_tg, "date", run_date=run_time, args=[f"Reminder: {task}"])
+                        return f"Got it! Reminder set for {time_str} — {task}."
+                    else:
+                        return "That time has already passed today."
+                except ValueError:
+                    return "Couldn't parse the time — what time did you mean?"
 
     # Search
-    if decision.startswith("SEARCH|"):
-        query = decision.split("|", 1)[1].strip()
-        results = await tavily_client.search(query, search_depth="basic", max_results=3)
+    if _needs_search(text):
+        results = await tavily_client.search(text, search_depth="basic", max_results=3)
         answer = results.get("answer") or "\n".join(
             r["content"] for r in results.get("results", [])[:2]
         )
@@ -156,4 +172,5 @@ async def handle_hey(text: str, scheduler) -> str:
         return await call_claude(summary_sys, f"Question: {text}\nSearch results: {answer}")
 
     # Conversational
-    return decision
+    chat_sys = "You are Lo's personal assistant on Telegram. Respond conversationally — warm, brief, no emojis."
+    return await call_claude(chat_sys, text)
