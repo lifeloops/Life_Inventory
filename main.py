@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 import gspread
@@ -401,17 +402,18 @@ async def telegram_webhook(request: Request):
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=403)
 
     # "hey" prefix → route to Claude (chat or reminder)
+    # Return 200 immediately so Telegram doesn't retry, then process in background
     if text.lower().startswith("hey"):
-        print(f"🤖 hey routing triggered: {text}")
-        try:
-            response = await handle_hey(text, scheduler)
-        except Exception as e:
-            print(f"❌ handle_hey error: {e}")
-            import traceback
-            traceback.print_exc()
-            response = f"Error: {str(e)}"
-        print(f"🤖 hey response: {response}")
-        await send_telegram_message(response)
+        async def process_hey():
+            try:
+                response = await handle_hey(text, scheduler)
+            except Exception as e:
+                print(f"❌ handle_hey error: {e}")
+                import traceback
+                traceback.print_exc()
+                response = f"Error: {str(e)}"
+            await send_telegram_message(response)
+        asyncio.create_task(process_hey())
         return JSONResponse({"ok": True})
 
     # Parse the message

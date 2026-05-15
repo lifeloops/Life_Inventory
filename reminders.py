@@ -116,13 +116,14 @@ async def goodnight_msg() -> None:
 
 async def handle_hey(text: str, scheduler) -> str:
     """Route 'hey' messages — schedule a reminder or respond conversationally."""
+    import asyncio
     sys = (
         "You are Lo's personal assistant on Telegram. "
         "If the message is asking to set a reminder, respond ONLY in this exact format: "
         "REMINDER|HH:MM|task description (24-hour time). "
         "Otherwise respond conversationally — warm, brief, no emojis."
     )
-    response = call_claude(sys, text)
+    response = await asyncio.to_thread(call_claude, sys, text)
 
     if response.startswith("REMINDER|"):
         parts = response.split("|", 2)
