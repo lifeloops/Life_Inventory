@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 import gspread
 from google.oauth2.service_account import Credentials
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from reminders import morning_msg, midday_msg, afternoon_msg, evening_msg
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -335,11 +337,15 @@ async def startup():
     Base.metadata.create_all(bind=engine)
     print("✅ Database initialized")
     
-    # Start background scheduler for nightly sync
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(sync_to_google_sheets, "cron", hour=23, minute=0)  # 11pm daily
+    # Start scheduler (America/New_York)
+    scheduler = AsyncIOScheduler(timezone="America/New_York")
+    scheduler.add_job(sync_to_google_sheets, "cron", hour=23, minute=0)
+    scheduler.add_job(morning_msg,   "cron", hour=9,  minute=0)
+    scheduler.add_job(midday_msg,    "cron", hour=15, minute=0)
+    scheduler.add_job(afternoon_msg, "cron", hour=17, minute=0)
+    scheduler.add_job(evening_msg,   "cron", hour=20, minute=0)
     scheduler.start()
-    print("✅ Scheduler started: Google Sheets sync at 11pm daily")
+    print("✅ Scheduler started (ET): reminders 9am/3pm/5pm/8pm, Sheets 11pm")
 
 
 @app.get("/health")
@@ -678,6 +684,27 @@ async def apple_health_webhook(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
     finally:
         db.close()
+
+
+@app.get("/debug/morning")
+async def _debug_morning():
+    await morning_msg()
+    return {"ok": True}
+
+@app.get("/debug/midday")
+async def _debug_midday():
+    await midday_msg()
+    return {"ok": True}
+
+@app.get("/debug/afternoon")
+async def _debug_afternoon():
+    await afternoon_msg()
+    return {"ok": True}
+
+@app.get("/debug/evening")
+async def _debug_evening():
+    await evening_msg()
+    return {"ok": True}
 
 
 if __name__ == "__main__":
